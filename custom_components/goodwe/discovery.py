@@ -1,4 +1,4 @@
-"""Recover an existing inverter by its serial number after an IP change."""
+"""Discover GoodWe inverters and recover their address by serial number."""
 
 from __future__ import annotations
 
@@ -33,6 +33,31 @@ DISCOVERY_SECONDS = 2
 RECOVERY_SECONDS = 20
 RECOVERY_INTERVAL = 60
 MAX_CANDIDATES = 16
+
+
+async def async_probe_inverter(host: str) -> tuple[Inverter, int] | None:
+    """Verify a candidate through read-only inverter identification requests."""
+    try:
+        async with asyncio.timeout(8):
+            for port in (GOODWE_UDP_PORT, GOODWE_TCP_PORT):
+                try:
+                    inverter = await connect(host=host, port=port, timeout=1, retries=0)
+                except (InverterError, OSError):
+                    continue
+                if inverter.serial_number and inverter.serial_number.strip():
+                    return inverter, port
+    except TimeoutError:
+        pass
+    return None
+
+
+async def async_discover_inverters(
+    hass: HomeAssistant,
+) -> dict[str, tuple[Inverter, int]]:
+    """Find loggers, then discard replies that are not working GoodWe devices."""
+    hosts = await async_discover_hosts(hass)
+    results = await asyncio.gather(*(async_probe_inverter(host) for host in hosts))
+    return {host: result for host, result in zip(hosts, results) if result is not None}
 
 
 class _DiscoveryProtocol(asyncio.DatagramProtocol):

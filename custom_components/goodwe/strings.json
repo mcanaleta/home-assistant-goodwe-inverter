@@ -2,13 +2,15 @@
   "config": {
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]"
+      "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
+      "not_goodwe": "This device does not respond as a GoodWe inverter",
+      "device_changed": "This address now belongs to another inverter. Discover devices again."
     },
     "error": {
       "connection_error": "[%key:common::config_flow::error::cannot_connect%]"
     },
     "step": {
-      "user": {
+      "manual": {
         "data": {
           "host": "[%key:common::config_flow::data::ip%]",
           "protocol": "Protocol",
@@ -16,8 +18,20 @@
         },
         "description": "Connect to inverter",
         "title": "GoodWe inverter"
+      },
+      "select": {
+        "title": "Discovered inverters",
+        "description": "Choose an inverter found on the network, or Manual to enter an address.",
+        "data": {
+          "device": "Inverter"
+        }
+      },
+      "confirm": {
+        "title": "Set up GoodWe inverter",
+        "description": "Add {model}, serial number {serial}, found at {host}?"
       }
-    }
+    },
+    "flow_title": "GoodWe {name}"
   },
   "entity": {
     "button": {

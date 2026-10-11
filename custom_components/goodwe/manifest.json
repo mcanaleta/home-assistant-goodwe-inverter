@@ -1,6 +1,9 @@
 {
   "domain": "goodwe",
   "name": "GoodWe Inverter",
+  "after_dependencies": [
+    "dhcp"
+  ],
   "codeowners": [
     "@mletenay",
     "@starkillerOG",
@@ -8,12 +11,29 @@
     "@mcanaleta"
   ],
   "config_flow": true,
+  "dependencies": [
+    "network"
+  ],
+  "dhcp": [
+    {
+      "hostname": "solar-wifi*"
+    },
+    {
+      "macaddress": "E8FDF8*"
+    },
+    {
+      "registered_devices": true
+    }
+  ],
   "documentation": "https://github.com/mcanaleta/home-assistant-goodwe-inverter",
-  "dependencies": ["network"],
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/mcanaleta/home-assistant-goodwe-inverter/issues",
-  "loggers": ["goodwe"],
-  "requirements": ["goodwe==0.4.10"],
-  "version": "0.9.9.31.dev1"
+  "loggers": [
+    "goodwe"
+  ],
+  "requirements": [
+    "goodwe==0.4.10"
+  ],
+  "version": "0.9.9.31.dev2"
 }

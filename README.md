@@ -6,11 +6,29 @@
 
 ## GoodWe solar inverter for Home Assistant (experimental)
 
-### Personal fork with serial based IP recovery
+### Personal fork with discovery and serial based IP recovery
 
-This fork adds recovery for an existing Home Assistant GoodWe entry after its
-logger obtains a different DHCP address. Initial setup still accepts a host.
-The stable identity is the inverter serial already stored in `unique_id`.
+This fork discovers inverters before asking for an IP and recovers existing
+entries after DHCP address changes. The stable identity is the inverter serial
+stored in `unique_id`.
+
+When adding GoodWe, a bounded UDP search shows verified devices by model and
+serial. Select a device and confirm it; manual host configuration remains
+available for loggers without UDP discovery support. Identification is repeated
+at confirmation so an address reassigned to a different serial is rejected.
+
+Home Assistant can also offer newly detected devices automatically through its
+DHCP integration. Matchers cover Solar-WiFi hostnames, the E8FDF8 logger MAC
+prefix, and MACs registered by this integration. The MAC prefix is shared by
+other products: it only triggers a read-only probe, and devices without a valid
+GoodWe response are rejected. Discovery shows a confirmation form, never creates
+an entry without user confirmation. A previously configured serial updates its
+existing host (including an options override), preserving all other settings.
+The DHCP logger MAC is registered as a network connection, while the inverter
+serial remains the primary identity. Automatic discovery requires DHCP enabled
+and network visibility; installing this custom integration requires an HA
+restart. Models with different logger prefixes or hostnames may need the
+Add integration UDP search.
 
 At startup, failed connection and port detection trigger a bounded UDP search
 using `WIFIKIT-214028-READ` on port 48899. While running, discovery starts after
@@ -28,8 +46,10 @@ not change configuration. Discovery sends no inverter control or setting
 commands. This requires a compatible Wi-Fi/LAN logger and a local network
 that passes broadcast traffic; it does not discover across routed VLANs.
 
-Compatibility checks and 13 mocked tests run in the Home Assistant 2026.10.0
-Python environment. Run tests with:
+The original 13 recovery tests and a read-only live recovery probe passed on
+Home Assistant 2026.10.0. The expanded 26 discovery/recovery tests pass locally
+with HA 2026.8.3, including actual ConfigFlow and manifest loader behavior.
+The test workflow pins HA 2026.10.0. Run tests with:
 
 ```sh
 python -m unittest discover -s tests -v

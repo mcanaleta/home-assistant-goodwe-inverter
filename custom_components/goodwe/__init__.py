@@ -1,9 +1,19 @@
 """The Goodwe inverter component."""
 
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_PROTOCOL, CONF_SCAN_INTERVAL
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_MAC,
+    CONF_PORT,
+    CONF_PROTOCOL,
+    CONF_SCAN_INTERVAL,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 
 from goodwe import Inverter, InverterError, connect
 from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
@@ -74,6 +84,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoodweConfigEntry) -> bo
         sw_version=f"{inverter.firmware} / {inverter.arm_firmware}",
         hw_version=f"{inverter.serial_number[5:8]} {inverter.serial_number[0:5]}",
     )
+    if mac := entry.data.get(CONF_MAC):
+        device_info["connections"] = {(CONNECTION_NETWORK_MAC, format_mac(mac))}
 
     # Create update coordinator
     coordinator = GoodweUpdateCoordinator(hass, entry, inverter)

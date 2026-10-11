@@ -2,14 +2,16 @@
     "config": {
         "abort": {
             "already_configured": "El dispositivo ya está configurado",
-            "already_in_progress": "El proceso de configuración ya está en curso"
+            "already_in_progress": "El proceso de configuración ya está en curso",
+            "not_goodwe": "El equipo no responde como un inversor GoodWe",
+            "device_changed": "La dirección pertenece ahora a otro inversor. Vuelve a buscar."
         },
         "error": {
             "connection_error": "No se pudo conectar"
         },
-    "flow_title": "GoodWe",
+        "flow_title": "GoodWe {name}",
         "step": {
-            "user": {
+            "manual": {
                 "data": {
                     "host": "Nombre de equipo / Dirección IP",
                     "port": "Port (8899/UDP | 502/TCP)",
@@ -18,6 +20,17 @@
                 },
                 "description": "Conectar al inversor",
                 "title": "Inversor GoodWe"
+            },
+            "select": {
+                "title": "Inversores encontrados",
+                "description": "Elige un inversor encontrado en la red, o Manual para indicar una dirección.",
+                "data": {
+                    "device": "Inversor"
+                }
+            },
+            "confirm": {
+                "title": "Configurar inversor GoodWe",
+                "description": "¿Añadir {model}, número de serie {serial}, encontrado en {host}?"
             }
         }
     },
@@ -52,7 +65,7 @@
             "fast_charging_power": {
                 "name": "Potencia de carga rápida"
             },
-              "fast_charging_soc": {
+            "fast_charging_soc": {
                 "name": "Estado de carga para carga rápida"
             }
         },
@@ -86,7 +99,7 @@
             },
             "fast_charging_switch": {
                 "name": "Interruptor de carga rápida"
-              },
+            },
             "load_control": {
                 "name": "Control de carga"
             },
@@ -117,4 +130,3 @@
         }
     }
 }
-
