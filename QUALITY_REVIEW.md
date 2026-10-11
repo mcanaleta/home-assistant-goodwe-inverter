@@ -1,6 +1,6 @@
 # Discovery and recovery quality review
 
-Reviewed on 2026-10-11. Implementation validated at `baf84ac` against Home
+Reviewed on 2026-10-11. Implementation validated at `480f134` against Home
 Assistant 2026.10.0, Python 3.14.8, and goodwe 0.4.10 on Linux.
 
 The discovery/recovery change is a credible contribution candidate. It has
@@ -53,8 +53,8 @@ and device identity. This follows Home Assistant's
 
 ## Verification
 
-[GitHub Actions evidence](https://github.com/mcanaleta/home-assistant-goodwe-inverter/actions/runs/38167736096)
-contains **47 passing tests**, lint, formatting, and coverage. HACS and hassfest
+[GitHub Actions evidence](https://github.com/mcanaleta/home-assistant-goodwe-inverter/actions/runs/38167979160)
+contains **48 passing tests**, lint, formatting, and coverage. HACS and hassfest
 also passed on the same implementation commit. CI checks coverage across the
 whole integration and enforces 100% for the four focused modules below.
 

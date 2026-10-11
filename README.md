@@ -47,7 +47,7 @@ not change configuration. Discovery sends no inverter control or setting
 commands. This requires a compatible Wi-Fi/LAN logger and a local network
 that passes broadcast traffic; it does not discover across routed VLANs.
 
-The 47 tests pass on HA 2026.10.0/Python 3.14.8 in GitHub Actions. They include
+The 48 tests pass on HA 2026.10.0/Python 3.14.8 in GitHub Actions. They include
 Home Assistant's real flow manager, config entries and entity registry. CI runs
 Ruff and reports line/branch coverage across the entire integration; config
 flow, discovery, shared helpers and diagnostics must remain at 100%. The full
