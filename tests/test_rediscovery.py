@@ -6,12 +6,13 @@ from ipaddress import IPv4Interface
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from custom_components.goodwe import async_check_port, async_setup_entry, discovery
-from custom_components.goodwe.coordinator import GoodweUpdateCoordinator
 from goodwe import InverterError, RequestFailedException
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import UpdateFailed
+
+from custom_components.goodwe import async_check_port, async_setup_entry, discovery
+from custom_components.goodwe.coordinator import GoodweUpdateCoordinator
 
 SERIAL = "EXAMPLE-ET-SERIAL"
 
