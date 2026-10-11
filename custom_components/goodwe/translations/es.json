@@ -4,7 +4,9 @@
             "already_configured": "El dispositivo ya está configurado",
             "already_in_progress": "El proceso de configuración ya está en curso",
             "not_goodwe": "El equipo no responde como un inversor GoodWe",
-            "device_changed": "La dirección pertenece ahora a otro inversor. Vuelve a buscar."
+            "device_changed": "La dirección pertenece ahora a otro inversor. Vuelve a buscar.",
+            "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+            "unique_id_mismatch": "[%key:common::config_flow::abort::unique_id_mismatch%]"
         },
         "error": {
             "connection_error": "No se pudo conectar"
@@ -31,6 +33,16 @@
             "confirm": {
                 "title": "Configurar inversor GoodWe",
                 "description": "¿Añadir {model}, número de serie {serial}, encontrado en {host}?"
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "Nombre de equipo / Dirección IP",
+                    "port": "Port (8899/UDP | 502/TCP)",
+                    "protocol": "Protocolo",
+                    "model_family": "Familia de inversores (opcional)"
+                },
+                "description": "Conectar al inversor",
+                "title": "Reconfigurar inversor GoodWe"
             }
         }
     },
@@ -127,6 +139,9 @@
                 "description": "Especificar configuraciones opcionales (de red)",
                 "title": "Configuraciones opcionales de GoodWe"
             }
+        },
+        "error": {
+            "connection_error": "No se pudo conectar"
         }
     }
 }

@@ -24,7 +24,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
-from goodwe import Inverter, InverterError, connect
+from goodwe import Inverter, InverterError
 from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
 
 from .const import (
@@ -40,27 +40,39 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .discovery import async_discover_inverters, async_probe_inverter
+from .discovery import (
+    DiscoveredInverter,
+    async_discover_inverters,
+    async_probe_inverter,
+)
+from .helpers import (
+    async_detect_inverter_port,
+    async_update_endpoint,
+    entry_endpoint_data,
+    validate_serial,
+)
 
 PROTOCOL_CHOICES = ["UDP", "TCP"]
 CONFIG_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
         vol.Required(CONF_PROTOCOL, default="UDP"): vol.In(PROTOCOL_CHOICES),
-        vol.Required(CONF_MODEL_FAMILY, default="none"): str,
+        vol.Required(CONF_MODEL_FAMILY, default="none"): vol.In(
+            ["none", "ET", "DT", "ES"]
+        ),
     }
 )
 OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
-        vol.Optional(CONF_PORT): int,
+        vol.Optional(CONF_PORT): vol.All(cv.positive_int, vol.Range(min=1, max=65535)),
         vol.Required(CONF_PROTOCOL): vol.In(PROTOCOL_CHOICES),
         vol.Required(CONF_KEEP_ALIVE): cv.boolean,
-        vol.Required(CONF_MODEL_FAMILY): str,
-        vol.Optional(CONF_SCAN_INTERVAL): int,
-        vol.Optional(CONF_MODBUS_ID): int,
+        vol.Required(CONF_MODEL_FAMILY): vol.In(["none", "ET", "DT", "ES"]),
+        vol.Optional(CONF_SCAN_INTERVAL): vol.All(cv.positive_int, vol.Range(min=1)),
+        vol.Optional(CONF_MODBUS_ID): vol.All(cv.positive_int, vol.Range(max=247)),
         vol.Optional(CONF_NETWORK_RETRIES): cv.positive_int,
-        vol.Optional(CONF_NETWORK_TIMEOUT): cv.positive_int,
+        vol.Optional(CONF_NETWORK_TIMEOUT): vol.All(cv.positive_int, vol.Range(min=1)),
     }
 )
 
@@ -76,8 +88,40 @@ class OptionsFlowHandler(OptionsFlow):
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Manage the options."""
+        errors = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            effective = {**self.entry.data, **self.entry.options}
+            if any(
+                user_input.get(key) != effective.get(key)
+                for key in (
+                    CONF_HOST,
+                    CONF_PORT,
+                    CONF_PROTOCOL,
+                    CONF_MODEL_FAMILY,
+                    CONF_MODBUS_ID,
+                )
+                if key in user_input
+            ):
+                port = user_input.get(CONF_PORT) or (
+                    GOODWE_TCP_PORT
+                    if user_input[CONF_PROTOCOL] == "TCP"
+                    else GOODWE_UDP_PORT
+                )
+                try:
+                    inverter, _ = await async_detect_inverter_port(
+                        user_input[CONF_HOST],
+                        family=user_input[CONF_MODEL_FAMILY],
+                        preferred_port=port,
+                        allow_fallback=False,
+                        comm_addr=user_input.get(CONF_MODBUS_ID, DEFAULT_MODBUS_ID),
+                    )
+                    validate_serial(self.entry, inverter)
+                except InverterError, OSError:
+                    errors[CONF_HOST] = "connection_error"
+                else:
+                    return self.async_create_entry(title="", data=user_input)
+            else:
+                return self.async_create_entry(title="", data=user_input)
 
         host = self.entry.options.get(CONF_HOST, self.entry.data[CONF_HOST])
         port = self.entry.options.get(CONF_PORT, self.entry.data.get(CONF_PORT))
@@ -98,6 +142,7 @@ class OptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
+            errors=errors,
             data_schema=self.add_suggested_values_to_schema(
                 OPTIONS_SCHEMA,
                 {
@@ -123,8 +168,8 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
     VERSION = 2
 
     def __init__(self) -> None:
-        self._discovered: dict[str, tuple[Inverter, int]] = {}
-        self._candidate: tuple[Inverter, str] | None = None
+        self._discovered: dict[str, DiscoveredInverter] = {}
+        self._candidate: tuple[Inverter, str, int] | None = None
         self._mac: str | None = None
 
     @staticmethod
@@ -143,8 +188,9 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
         protocol: str,
     ) -> ConfigFlowResult:
         """Handle a successful connection storing it's values on the entry data."""
+        validate_serial(None, inverter)
         await self.async_set_unique_id(inverter.serial_number)
-        self._update_existing_entry(host)
+        self._update_existing_entry(host, port)
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
@@ -177,11 +223,12 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
             host = user_input["device"]
             if host == "manual":
                 return await self.async_step_manual()
-            inverter, port = self._discovered[host]
-            return await self._async_offer(inverter, host, port)
+            discovered = self._discovered[host]
+            self._mac = discovered.mac
+            return await self._async_offer(discovered.inverter, host, discovered.port)
         choices = {
-            host: f"{inv.model_name} — {inv.serial_number} ({host})"
-            for host, (inv, _) in self._discovered.items()
+            host: f"{found.inverter.model_name} — {found.inverter.serial_number} ({host})"
+            for host, found in self._discovered.items()
         }
         choices["manual"] = "Manual"
         return self.async_show_form(
@@ -199,32 +246,23 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
         self._mac = format_mac(discovery_info.macaddress)
         return await self._async_offer(result[0], discovery_info.ip, result[1])
 
-    def _update_existing_entry(self, host: str) -> None:
-        """Refresh an existing serial without replacing its options or identity."""
-        existing = self._async_current_entries()
-        for entry in existing:
-            if entry.unique_id != self.unique_id:
-                continue
-            data = {**entry.data, CONF_HOST: host}
-            if self._mac:
-                data[CONF_MAC] = self._mac
-            options = dict(entry.options)
-            if CONF_HOST in options:
-                options[CONF_HOST] = host
-            if data != entry.data or options != entry.options:
-                self.hass.config_entries.async_update_entry(
-                    entry, data=data, options=options
-                )
-            return
+    def _update_existing_entry(self, host: str, port: int) -> None:
+        """Merge verified network information without altering serial identity."""
+        if entry := self.hass.config_entries.async_entry_for_domain_unique_id(
+            DOMAIN, self.unique_id
+        ):
+            async_update_endpoint(self.hass, entry, host, port, self._mac)
 
     async def _async_offer(
         self, inverter: Inverter, host: str, port: int
     ) -> ConfigFlowResult:
         """Deduplicate by serial and ask for confirmation before creating an entry."""
+        validate_serial(None, inverter)
         await self.async_set_unique_id(inverter.serial_number)
-        self._update_existing_entry(host)
+        self._update_existing_entry(host, port)
         self._abort_if_unique_id_configured()
-        self._candidate = (inverter, host)
+        self._candidate = (inverter, host, port)
+        self._set_confirm_only()
         self.context["title_placeholders"] = {"name": inverter.model_name}
         return await self.async_step_confirm()
 
@@ -233,9 +271,11 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Confirm the device, checking that DHCP has not reassigned its address."""
         assert self._candidate is not None
-        inverter, host = self._candidate
+        inverter, host, port = self._candidate
         if user_input is not None:
-            result = await async_probe_inverter(host)
+            result = await async_probe_inverter(
+                host, family=type(inverter).__name__, preferred_port=port
+            )
             if result is None:
                 return self.async_show_form(
                     step_id="confirm",
@@ -286,10 +326,10 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
                     protocol,
                     model_family,
                 )
-                inverter = await connect(
-                    host=host, port=port, family=model_family, retries=10
+                inverter, port = await async_detect_inverter_port(
+                    host, family=model_family, preferred_port=port, allow_fallback=False
                 )
-            except InverterError:
+            except InverterError, OSError:
                 errors[CONF_HOST] = "connection_error"
             else:
                 return await self.async_handle_successful_connection(
@@ -299,15 +339,38 @@ class GoodweFlowHandler(ConfigFlow, domain=DOMAIN):
             step_id="manual", data_schema=CONFIG_SCHEMA, errors=errors
         )
 
-    @staticmethod
-    async def async_detect_inverter_port(
-        host: str,
-    ) -> tuple[Inverter, int]:
-        """Detects the port of the Inverter."""
-        port = GOODWE_UDP_PORT
-        try:
-            inverter = await connect(host=host, port=port, retries=10)
-        except InverterError:
-            port = GOODWE_TCP_PORT
-            inverter = await connect(host=host, port=port, retries=10)
-        return inverter, port
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Verify a replacement endpoint while preserving the configured serial."""
+        entry = self._get_reconfigure_entry()
+        errors = {}
+        if user_input is not None:
+            host = user_input[CONF_HOST]
+            port = (
+                GOODWE_UDP_PORT
+                if user_input[CONF_PROTOCOL] == "UDP"
+                else GOODWE_TCP_PORT
+            )
+            try:
+                inverter, port = await async_detect_inverter_port(
+                    host,
+                    family=user_input[CONF_MODEL_FAMILY],
+                    preferred_port=port,
+                    comm_addr=entry.options.get(CONF_MODBUS_ID, DEFAULT_MODBUS_ID),
+                    allow_fallback=False,
+                )
+            except InverterError, OSError:
+                errors[CONF_HOST] = "connection_error"
+            else:
+                await self.async_set_unique_id(inverter.serial_number)
+                self._abort_if_unique_id_mismatch()
+                data, options = entry_endpoint_data(entry, host, port)
+                return self.async_update_and_abort(entry, data=data, options=options)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                CONFIG_SCHEMA, {**entry.data, **entry.options}
+            ),
+            errors=errors,
+        )

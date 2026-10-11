@@ -1,10 +1,8 @@
 """GoodWe PV inverter selection settings entities."""
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
-from goodwe import Inverter, InverterError, OperationMode
-from goodwe.inverter import EMSMode
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import (
     STATE_UNAVAILABLE,
@@ -17,6 +15,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
+
+from goodwe import Inverter, InverterError, OperationMode
+from goodwe.inverter import EMSMode
 
 from .const import DOMAIN
 from .coordinator import GoodweConfigEntry
@@ -77,7 +78,7 @@ async def async_setup_entry(
         eco_mode = await inverter.read_setting("eco_mode_1")
         current_eco_power = abs(eco_mode.power) if eco_mode.power else 0
         current_eco_soc = eco_mode.soc or 0
-    except (InverterError, ValueError):
+    except InverterError, ValueError:
         # Inverter model does not support this setting
         _LOGGER.debug("Could not read inverter operation mode", exc_info=True)
     else:
@@ -125,7 +126,7 @@ async def async_setup_entry(
     # read current EMS mode from the inverter
     try:
         ems_mode = await inverter.get_ems_mode()
-    except (InverterError, ValueError):
+    except InverterError, ValueError:
         # Inverter model does not support EMS modes
         _LOGGER.debug("Could not read inverter EMS mode", exc_info=True)
     else:
@@ -177,9 +178,7 @@ class InverterOperationModeEntity(SelectEntity):
                 _OPTION_TO_MODE[option], self._eco_mode_power, self._eco_mode_soc
             )
         except InverterError as err:
-            _LOGGER.warning(
-                "Failed to set operation mode to %s: %s", option, err
-            )
+            _LOGGER.warning("Failed to set operation mode to %s: %s", option, err)
             return
         self._attr_current_option = option
         self.async_write_ha_state()

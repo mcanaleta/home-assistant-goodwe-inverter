@@ -4,7 +4,9 @@
             "already_configured": "Zařízení je již nastaveno",
             "already_in_progress": "Nastavení již probíhá",
             "not_goodwe": "This device does not respond as a GoodWe inverter",
-            "device_changed": "This address now belongs to another inverter. Discover devices again."
+            "device_changed": "This address now belongs to another inverter. Discover devices again.",
+            "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+            "unique_id_mismatch": "[%key:common::config_flow::abort::unique_id_mismatch%]"
         },
         "error": {
             "connection_error": "Nepodařilo se připojit"
@@ -31,6 +33,16 @@
             "confirm": {
                 "title": "Set up GoodWe inverter",
                 "description": "Add {model}, serial number {serial}, found at {host}?"
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "IP adresa",
+                    "port": "Port (8899/UDP | 502/TCP)",
+                    "protocol": "Protokol",
+                    "model_family": "Typ střídače (volitelné)"
+                },
+                "description": "Připojí se ke střídači",
+                "title": "Reconfigure GoodWe inverter"
             }
         }
     },
@@ -127,6 +139,9 @@
                 "description": "Nastaví volitelné (síťové) volby",
                 "title": "Volitelné volby GoodWe"
             }
+        },
+        "error": {
+            "connection_error": "Nepodařilo se připojit"
         }
     }
 }

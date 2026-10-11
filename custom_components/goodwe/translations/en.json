@@ -4,7 +4,9 @@
             "already_configured": "Device is already configured",
             "already_in_progress": "Configuration flow is already in progress",
             "not_goodwe": "This device does not respond as a GoodWe inverter",
-            "device_changed": "This address now belongs to another inverter. Discover devices again."
+            "device_changed": "This address now belongs to another inverter. Discover devices again.",
+            "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+            "unique_id_mismatch": "[%key:common::config_flow::abort::unique_id_mismatch%]"
         },
         "error": {
             "connection_error": "Failed to connect"
@@ -31,6 +33,16 @@
             "confirm": {
                 "title": "Set up GoodWe inverter",
                 "description": "Add {model}, serial number {serial}, found at {host}?"
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "Hostname / IP address",
+                    "port": "Port (8899/UDP | 502/TCP)",
+                    "protocol": "Protocol",
+                    "model_family": "Inverter Family (optional)"
+                },
+                "description": "Connect to inverter",
+                "title": "Reconfigure GoodWe inverter"
             }
         }
     },
@@ -150,6 +162,9 @@
                 "description": "Specify optional (network) settings",
                 "title": "GoodWe optional settings"
             }
+        },
+        "error": {
+            "connection_error": "Failed to connect"
         }
     }
 }

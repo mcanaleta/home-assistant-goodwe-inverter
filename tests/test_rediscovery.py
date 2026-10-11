@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from goodwe import InverterError, RequestFailedException
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
@@ -19,6 +19,7 @@ SERIAL = "EXAMPLE-ET-SERIAL"
 
 def entry(**kwargs):
     values = {
+        "source": SOURCE_USER,
         "entry_id": "existing-entry",
         "unique_id": SERIAL,
         "data": {
@@ -32,6 +33,13 @@ def entry(**kwargs):
     }
     values.update(kwargs)
     return SimpleNamespace(**values)
+
+
+def loggers(*hosts):
+    return {
+        host: discovery.LoggerInfo(host, "00:11:22:33:44:55", "Solar-WiFi")
+        for host in hosts
+    }
 
 
 def inverter(serial=SERIAL):
@@ -77,7 +85,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 discovery,
                 "_async_search_interface",
-                AsyncMock(return_value={"192.168.1.120"}),
+                AsyncMock(return_value=loggers("192.168.1.120")),
             ) as search,
         ):
             self.assertEqual(
@@ -111,20 +119,29 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 discovery,
-                "async_discover_hosts",
-                AsyncMock(return_value=["192.168.1.119", "192.168.1.120"]),
+                "async_discover_loggers",
+                AsyncMock(return_value=loggers("192.168.1.119", "192.168.1.120")),
             ),
-            patch.object(discovery, "connect", AsyncMock(side_effect=[wrong, right])),
+            patch.object(
+                discovery,
+                "async_detect_inverter_port",
+                AsyncMock(side_effect=[(wrong, 8899), (right, 8899)]),
+            ),
         ):
             recovered = await discovery.async_recover_inverter(hass, configured)
         self.assertIs(recovered[0], right)
         self.assertEqual(recovered[1], {"ppv": 1234})
         wrong.read_runtime_data.assert_not_awaited()
         right.write_setting.assert_not_called()
-        right.set_keep_alive.assert_called_once_with(True)
+        right.set_keep_alive.assert_not_called()
         hass.config_entries.async_update_entry.assert_called_once_with(
             configured,
-            data={**configured.data, "host": "192.168.1.120"},
+            data={
+                **configured.data,
+                "host": "192.168.1.120",
+                "protocol": "UDP",
+                "mac": "00:11:22:33:44:55",
+            },
             options={**configured.options, "host": "192.168.1.120"},
         )
         self.assertEqual(configured.unique_id, SERIAL)
@@ -137,10 +154,14 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             with (
                 patch.object(
                     discovery,
-                    "async_discover_hosts",
-                    AsyncMock(return_value=["192.168.1.120"]),
+                    "async_discover_loggers",
+                    AsyncMock(return_value=loggers("192.168.1.120")),
                 ),
-                patch.object(discovery, "connect", AsyncMock(return_value=candidate)),
+                patch.object(
+                    discovery,
+                    "async_detect_inverter_port",
+                    AsyncMock(return_value=(candidate, 8899)),
+                ),
             ):
                 self.assertIsNone(await discovery.async_recover_inverter(hass, entry()))
             hass.config_entries.async_update_entry.assert_not_called()
@@ -149,7 +170,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         hass = MagicMock(data={})
         configured = entry()
         with patch.object(
-            discovery, "async_discover_hosts", AsyncMock(return_value=[])
+            discovery, "async_discover_loggers", AsyncMock(return_value={})
         ) as search:
             self.assertIsNone(
                 await discovery.async_recover_inverter(hass, entry(unique_id=None))
@@ -162,7 +183,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 discovery,
-                "async_discover_hosts",
+                "async_discover_loggers",
                 AsyncMock(side_effect=asyncio.CancelledError),
             ),
             self.assertRaises(asyncio.CancelledError),
@@ -173,7 +194,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         hass = MagicMock()
         with (
             patch(
-                "custom_components.goodwe.GoodweFlowHandler.async_detect_inverter_port",
+                "custom_components.goodwe.async_detect_inverter_port",
                 AsyncMock(return_value=(inverter("OTHER"), 502)),
             ),
             self.assertRaises(InverterError),
@@ -229,14 +250,14 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         ):
             await async_setup_entry(MagicMock(data={}), entry())
 
-    async def test_generic_failures_recover_only_after_three(self):
+    async def test_consecutive_failures_recover_only_after_three(self):
         obj = object.__new__(GoodweUpdateCoordinator)
         obj.hass = MagicMock()
         obj.config_entry = entry()
         obj.inverter = inverter()
         obj.data = {}
         obj._polled_entities = {}
-        obj._generic_failures = 0
+        obj._consecutive_failures = 0
         obj.inverter.read_runtime_data.side_effect = InverterError("offline")
         with patch(
             "custom_components.goodwe.coordinator.async_recover_inverter",
@@ -250,7 +271,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
             recover.assert_awaited_once()
             obj.inverter.read_runtime_data.side_effect = None
             await obj._async_update_data()
-            self.assertEqual(obj._generic_failures, 0)
+            self.assertEqual(obj._consecutive_failures, 0)
 
     async def test_runtime_recovery_and_isolated_packet_loss(self):
         obj = object.__new__(GoodweUpdateCoordinator)
@@ -259,7 +280,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         obj.inverter = inverter()
         obj.data = {"ppv": 99}
         obj._polled_entities = {}
-        obj._generic_failures = 0
+        obj._consecutive_failures = 0
         obj.inverter.read_runtime_data.side_effect = RequestFailedException(
             "offline", 1
         )

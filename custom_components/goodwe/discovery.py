@@ -1,4 +1,4 @@
-"""Discover GoodWe inverters and recover their address by serial number."""
+"""Read-only local discovery and recovery of GoodWe inverter addresses."""
 
 from __future__ import annotations
 
@@ -6,24 +6,25 @@ import asyncio
 import logging
 import re
 import socket
+from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Interface
 from time import monotonic
 from typing import Any
 
 from homeassistant.components.network import async_get_adapters
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_PROTOCOL
+from homeassistant.const import CONF_PORT
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import format_mac
 
-from goodwe import Inverter, InverterError, connect
-from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
+from goodwe import Inverter, InverterError
 
-from .const import (
-    CONF_KEEP_ALIVE,
-    CONF_MODBUS_ID,
-    CONF_MODEL_FAMILY,
-    DEFAULT_MODBUS_ID,
-    DOMAIN,
+from .const import CONF_MODBUS_ID, CONF_MODEL_FAMILY, DEFAULT_MODBUS_ID, DOMAIN
+from .helpers import (
+    async_detect_inverter_port,
+    async_update_endpoint,
+    raise_if_cancelled,
+    validate_serial,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,33 +32,45 @@ DISCOVERY_PORT = 48899
 DISCOVERY_REQUEST = b"WIFIKIT-214028-READ"
 DISCOVERY_SECONDS = 2
 RECOVERY_SECONDS = 20
+CANDIDATE_SECONDS = 4
 RECOVERY_INTERVAL = 60
 MAX_CANDIDATES = 16
+MAX_CONCURRENT_PROBES = 4
+DATA_REDISCOVERY = f"{DOMAIN}_rediscovery"
 
 
-async def async_probe_inverter(host: str) -> tuple[Inverter, int] | None:
-    """Verify a candidate through read-only inverter identification requests."""
+@dataclass(frozen=True, slots=True)
+class LoggerInfo:
+    """A logger reply is a hint; the inverter API must verify its identity."""
+
+    host: str
+    mac: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveredInverter:
+    """A verified inverter endpoint and its optional network connection."""
+
+    inverter: Inverter
+    port: int
+    mac: str | None = None
+
+
+async def async_probe_inverter(
+    host: str,
+    *,
+    family: str | None = None,
+    preferred_port: int | None = None,
+) -> tuple[Inverter, int] | None:
+    """Bound identification of a candidate without sending control commands."""
     try:
-        async with asyncio.timeout(8):
-            for port in (GOODWE_UDP_PORT, GOODWE_TCP_PORT):
-                try:
-                    inverter = await connect(host=host, port=port, timeout=1, retries=0)
-                except (InverterError, OSError):
-                    continue
-                if inverter.serial_number and inverter.serial_number.strip():
-                    return inverter, port
-    except TimeoutError:
-        pass
-    return None
-
-
-async def async_discover_inverters(
-    hass: HomeAssistant,
-) -> dict[str, tuple[Inverter, int]]:
-    """Find loggers, then discard replies that are not working GoodWe devices."""
-    hosts = await async_discover_hosts(hass)
-    results = await asyncio.gather(*(async_probe_inverter(host) for host in hosts))
-    return {host: result for host, result in zip(hosts, results) if result is not None}
+        return await async_detect_inverter_port(
+            host, family=family, preferred_port=preferred_port
+        )
+    except InverterError, OSError:
+        raise_if_cancelled()
+        return None
 
 
 class _DiscoveryProtocol(asyncio.DatagramProtocol):
@@ -65,10 +78,15 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
 
     def __init__(self, interface: IPv4Interface) -> None:
         self.interface = interface
-        self.hosts: set[str] = set()
+        self.loggers: dict[str, LoggerInfo] = {}
+
+    @property
+    def hosts(self) -> set[str]:
+        """Return deduplicated reply addresses."""
+        return set(self.loggers)
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        if len(data) > 256 or len(self.hosts) >= MAX_CANDIDATES:
+        if len(data) > 256 or len(self.loggers) >= MAX_CANDIDATES:
             return
         try:
             fields = data.decode("ascii").strip().split(",")
@@ -89,12 +107,14 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
                 or host.is_unspecified
             ):
                 return
-        except (UnicodeError, ValueError):
+        except UnicodeError, ValueError:
             return
-        self.hosts.add(str(host))
+        self.loggers[str(host)] = LoggerInfo(
+            str(host), format_mac(fields[1]), fields[2]
+        )
 
 
-async def _async_search_interface(interface: IPv4Interface) -> set[str]:
+async def _async_search_interface(interface: IPv4Interface) -> dict[str, LoggerInfo]:
     protocol = _DiscoveryProtocol(interface)
     transport = None
     try:
@@ -114,87 +134,133 @@ async def _async_search_interface(interface: IPv4Interface) -> set[str]:
     finally:
         if transport is not None:
             transport.close()
-    return protocol.hosts
+    return protocol.loggers
 
 
-async def async_discover_hosts(hass: HomeAssistant) -> list[str]:
-    """Search only discovery interfaces enabled in Home Assistant networking."""
-    interfaces = set()
+async def async_discover_loggers(hass: HomeAssistant) -> dict[str, LoggerInfo]:
+    """Search only discovery interfaces explicitly enabled in HA networking."""
+    interfaces: set[IPv4Interface] = set()
     for adapter in await async_get_adapters(hass):
         if not adapter["enabled"]:
             continue
         for address in adapter["ipv4"]:
-            interface = IPv4Interface(
-                f"{address['address']}/{address['network_prefix']}"
-            )
+            try:
+                interface = IPv4Interface(
+                    f"{address['address']}/{address['network_prefix']}"
+                )
+            except ValueError:
+                continue
             if (
                 interface.network.prefixlen < 31
                 and not interface.ip.is_loopback
                 and not interface.ip.is_link_local
+                and not interface.ip.is_multicast
+                and not interface.ip.is_unspecified
             ):
                 interfaces.add(interface)
     results = await asyncio.gather(
         *(_async_search_interface(interface) for interface in interfaces)
     )
-    return sorted(set().union(*results))[:MAX_CANDIDATES]
+    loggers: dict[str, LoggerInfo] = {}
+    for result in results:
+        loggers.update(result)
+    return {host: loggers[host] for host in sorted(loggers)[:MAX_CANDIDATES]}
 
 
-def validate_serial(entry: ConfigEntry, inverter: Inverter) -> None:
-    """Never reuse an existing entry for a different physical inverter."""
-    if entry.unique_id and inverter.serial_number != entry.unique_id:
-        raise InverterError("The inverter serial does not match this config entry")
+async def async_discover_hosts(hass: HomeAssistant) -> list[str]:
+    """Return addresses for callers that do not need logger metadata."""
+    return list(await async_discover_loggers(hass))
+
+
+async def async_discover_inverters(
+    hass: HomeAssistant,
+) -> dict[str, DiscoveredInverter]:
+    """Limit concurrency and total duration while identifying logger replies."""
+    verified: dict[str, DiscoveredInverter] = {}
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_PROBES)
+
+    async def identify(logger: LoggerInfo) -> None:
+        async with semaphore:
+            if result := await async_probe_inverter(logger.host):
+                verified[logger.host] = DiscoveredInverter(*result, logger.mac)
+
+    try:
+        async with asyncio.timeout(RECOVERY_SECONDS):
+            await asyncio.gather(
+                *(
+                    identify(logger)
+                    for logger in (await async_discover_loggers(hass)).values()
+                )
+            )
+    except TimeoutError, OSError:
+        _LOGGER.debug("GoodWe discovery ended before all candidates responded")
+    return verified
 
 
 async def async_recover_inverter(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant,
+    entry: ConfigEntry,
 ) -> tuple[Inverter, dict[str, Any]] | None:
-    """Find the existing serial, verify telemetry, then update only its host."""
+    """Verify serial and telemetry, then atomically merge the endpoint of this entry."""
     if not entry.unique_id:
         return None
-    attempts = hass.data.setdefault(f"{DOMAIN}_rediscovery", {})
+    attempts: dict[str, float] = hass.data.setdefault(DATA_REDISCOVERY, {})
     now = monotonic()
     if now - attempts.get(entry.entry_id, float("-inf")) < RECOVERY_INTERVAL:
         return None
     attempts[entry.entry_id] = now
-
-    protocol = entry.options.get(CONF_PROTOCOL, entry.data.get(CONF_PROTOCOL, "UDP"))
-    port = entry.options.get(
-        CONF_PORT,
-        entry.data.get(
-            CONF_PORT, GOODWE_TCP_PORT if protocol == "TCP" else GOODWE_UDP_PORT
-        ),
-    )
-    family = entry.options.get(CONF_MODEL_FAMILY, entry.data[CONF_MODEL_FAMILY])
+    before_data, before_options = dict(entry.data), dict(entry.options)
+    family = entry.options.get(CONF_MODEL_FAMILY, entry.data.get(CONF_MODEL_FAMILY))
+    port = entry.options.get(CONF_PORT, entry.data.get(CONF_PORT))
     comm_addr = entry.options.get(CONF_MODBUS_ID, DEFAULT_MODBUS_ID)
-    try:
-        async with asyncio.timeout(RECOVERY_SECONDS):
-            for host in await async_discover_hosts(hass):
-                try:
-                    inverter = await connect(
-                        host=host,
-                        port=port,
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_PROBES)
+    tasks: list[
+        asyncio.Task[tuple[LoggerInfo, Inverter, int, dict[str, Any]] | None]
+    ] = []
+
+    async def verify(
+        logger: LoggerInfo,
+    ) -> tuple[LoggerInfo, Inverter, int, dict[str, Any]] | None:
+        async with semaphore:
+            try:
+                async with asyncio.timeout(CANDIDATE_SECONDS):
+                    inverter, new_port = await async_detect_inverter_port(
+                        logger.host,
                         family=family,
+                        preferred_port=port,
                         comm_addr=comm_addr,
-                        timeout=2,
-                        retries=0,
                     )
                     validate_serial(entry, inverter)
                     data = await inverter.read_runtime_data()
-                except (InverterError, OSError):
+                    raise_if_cancelled()
+                    return logger, inverter, new_port, data
+            except InverterError, OSError, TimeoutError:
+                raise_if_cancelled()
+                return None
+
+    try:
+        async with asyncio.timeout(RECOVERY_SECONDS):
+            loggers = await async_discover_loggers(hass)
+            tasks = [asyncio.create_task(verify(logger)) for logger in loggers.values()]
+            for pending in asyncio.as_completed(tasks):
+                if (result := await pending) is None:
                     continue
-                inverter.set_keep_alive(entry.options.get(CONF_KEEP_ALIVE, False))
-                options = dict(entry.options)
-                if CONF_HOST in options:
-                    options[CONF_HOST] = host
-                old_host = entry.options.get(CONF_HOST, entry.data[CONF_HOST])
-                hass.config_entries.async_update_entry(
-                    entry,
-                    data={**entry.data, CONF_HOST: host},
-                    options=options,
+                logger, inverter, new_port, data = result
+                if (
+                    dict(entry.data) != before_data
+                    or dict(entry.options) != before_options
+                ):
+                    return None
+                async_update_endpoint(hass, entry, logger.host, new_port, logger.mac)
+                _LOGGER.debug(
+                    "Verified the configured GoodWe inverter at %s", logger.host
                 )
-                if old_host != host:
-                    _LOGGER.info("Rediscovered existing GoodWe inverter at %s", host)
                 return inverter, data
-    except (TimeoutError, OSError):
+    except TimeoutError, OSError:
         _LOGGER.debug("GoodWe rediscovery did not find the configured inverter")
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
     return None

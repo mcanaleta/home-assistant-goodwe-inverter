@@ -15,7 +15,7 @@ from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from test_rediscovery import SERIAL, entry, inverter
 
 import custom_components
-from custom_components.goodwe import config_flow, discovery
+from custom_components.goodwe import config_flow, discovery, helpers
 
 HOST = "192.168.1.120"
 
@@ -44,7 +44,7 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 config_flow,
                 "async_discover_inverters",
-                AsyncMock(return_value={HOST: (inv, 8899)}),
+                AsyncMock(return_value={HOST: discovery.DiscoveredInverter(inv, 8899)}),
             ),
             patch.object(
                 config_flow,
@@ -73,7 +73,11 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["step_id"], "manual")
         result = await handler.async_step_select({"device": "manual"})
         self.assertEqual(result["step_id"], "manual")
-        with patch.object(config_flow, "connect", AsyncMock(return_value=inverter())):
+        with patch.object(
+            config_flow,
+            "async_detect_inverter_port",
+            AsyncMock(return_value=(inverter(), 8899)),
+        ):
             result = await handler.async_step_manual(
                 {"host": HOST, "protocol": "UDP", "model_family": "ET"}
             )
@@ -116,7 +120,12 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(abort.exception.reason, "already_configured")
         handler.hass.config_entries.async_update_entry.assert_called_once_with(
             existing,
-            data={**existing.data, "host": HOST, "mac": "e8:fd:f8:12:34:56"},
+            data={
+                **existing.data,
+                "host": HOST,
+                "protocol": "UDP",
+                "mac": "e8:fd:f8:12:34:56",
+            },
             options={**existing.options, "host": HOST},
         )
 
@@ -197,9 +206,11 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
     async def test_probe_tries_tcp_after_udp_read_failure(self):
         inv = inverter()
         with patch.object(
-            discovery, "connect", AsyncMock(side_effect=[InverterError(), inv])
+            helpers, "connect", AsyncMock(side_effect=[InverterError(), inv])
         ) as connect:
-            self.assertEqual(await discovery.async_probe_inverter(HOST), (inv, 502))
+            self.assertEqual(
+                await discovery.async_probe_inverter(HOST, family="ET"), (inv, 502)
+            )
         self.assertEqual(
             [call.kwargs["port"] for call in connect.await_args_list], [8899, 502]
         )
@@ -208,11 +219,11 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_unidentified_candidate_and_cancellation(self):
-        with patch.object(discovery, "connect", AsyncMock(return_value=inverter(""))):
+        with patch.object(helpers, "connect", AsyncMock(return_value=inverter(""))):
             self.assertIsNone(await discovery.async_probe_inverter(HOST))
         with (
             patch.object(
-                discovery, "connect", AsyncMock(side_effect=asyncio.CancelledError)
+                helpers, "connect", AsyncMock(side_effect=asyncio.CancelledError)
             ),
             self.assertRaises(asyncio.CancelledError),
         ):
@@ -223,8 +234,15 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 discovery,
-                "async_discover_hosts",
-                AsyncMock(return_value=[HOST, "192.168.1.121"]),
+                "async_discover_loggers",
+                AsyncMock(
+                    return_value={
+                        host: discovery.LoggerInfo(
+                            host, "00:11:22:33:44:55", "Solar-WiFi"
+                        )
+                        for host in [HOST, "192.168.1.121"]
+                    }
+                ),
             ),
             patch.object(
                 discovery,
@@ -234,7 +252,7 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertEqual(
                 await discovery.async_discover_inverters(MagicMock()),
-                {HOST: (inv, 8899)},
+                {HOST: discovery.DiscoveredInverter(inv, 8899, "00:11:22:33:44:55")},
             )
 
     async def test_manifest_has_matching_dhcp_and_translations(self):
