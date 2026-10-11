@@ -23,8 +23,8 @@ prefix, and MACs registered by this integration. The MAC prefix is shared by
 other products: it only triggers a read-only probe, and devices without a valid
 GoodWe response are rejected. Discovery shows a confirmation form, never creates
 an entry without user confirmation. A previously configured serial updates its
-existing host (including an options override), preserving all other settings.
-The DHCP logger MAC is registered as a network connection, while the inverter
+existing host, port and protocol (including options overrides), preserving all other settings.
+The logger MAC from UDP or DHCP is registered as a network connection, while the inverter
 serial remains the primary identity. Automatic discovery requires DHCP enabled
 and network visibility; installing this custom integration requires an HA
 restart. Models with different logger prefixes or hostnames may need the
@@ -34,27 +34,42 @@ At startup, failed connection and port detection trigger a bounded UDP search
 using `WIFIKIT-214028-READ` on port 48899. While running, discovery starts after
 three consecutive communication failures. It searches only network interfaces
 enabled in Home Assistant, validates the serial through the inverter API, reads
-telemetry, and updates the host in the existing entry. An explicit host override
-in options is updated too. The existing entry update listener reloads all
+telemetry, and updates the endpoint in the existing entry. Explicit host, port
+and protocol overrides in options are updated too. Recovery replaces the coordinator connection. Entry updates reload all
 platforms so controls and sensors use the recovered host. Entity IDs, unique
 IDs, other options, and recorder history remain attached to the same entry.
 
 The search collects replies for two seconds; recovery has a 20 second total
-timeout, a maximum of 16 candidates, and a 60 second cooldown per entry.
+timeout, a maximum of 16 candidates, four concurrent probes, a four second
+per-candidate verification limit, and a 60 second cooldown per entry.
 Devices with another serial and candidates that fail telemetry validation do
 not change configuration. Discovery sends no inverter control or setting
 commands. This requires a compatible Wi-Fi/LAN logger and a local network
 that passes broadcast traffic; it does not discover across routed VLANs.
 
-The 26 discovery/recovery tests pass on HA 2026.10.0 in GitHub Actions and
-locally on HA 2026.8.3, including actual ConfigFlow and manifest loader behavior.
-A previous read-only live recovery probe on HA 2026.10.0 also found the existing
-inverter by serial and read telemetry with configuration writes mocked.
-The library requirement follows HA upgrades, with 0.4.10 as the tested minimum.
-Run tests with:
+The 47 tests pass on HA 2026.10.0/Python 3.14.8 in GitHub Actions. They include
+Home Assistant's real flow manager, config entries and entity registry. CI runs
+Ruff and reports line/branch coverage across the entire integration; config
+flow, discovery, shared helpers and diagnostics must remain at 100%. The full
+integration's measured coverage is 60% because inherited platforms still lack
+coverage. See [quality review and contribution plan](QUALITY_REVIEW.md) for
+architecture, known gaps, hardware validation limits and the local test-runtime
+issue. The library requirement follows HA upgrades, with 0.4.10 as the tested
+minimum.
+
+The entry's **Reconfigure** action can change its endpoint after verifying the
+same serial. Endpoint edits in **Options** also verify identity; changing only
+the polling interval does not require an online inverter. Downloaded diagnostics
+redact IP, MAC and serial identity.
+
+Run checks in a Python 3.14 environment with the CI dependencies installed:
 
 ```sh
-python -m unittest discover -s tests -v
+ruff check custom_components tests
+ruff format --check custom_components tests
+coverage run -m unittest discover -s tests -v
+coverage report
+coverage report --fail-under=100 --include="*/config_flow.py,*/discovery.py,*/helpers.py,*/diagnostics.py"
 ```
 
 On an existing installation, back up configuration and registries before
