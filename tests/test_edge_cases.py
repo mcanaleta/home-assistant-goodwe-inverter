@@ -304,6 +304,33 @@ class EdgeCaseTests(unittest.IsolatedAsyncioTestCase):
             result = await handler.async_step_init(values)
         self.assertEqual(result["data"], values)
 
+    async def test_polling_only_options_form_accepts_default_modbus_address_offline(
+        self,
+    ):
+        handler = config_flow.OptionsFlowHandler(entry())
+        handler.hass = MagicMock()
+        result = await handler.async_step_init()
+        values = {
+            "host": "192.168.1.50",
+            "port": 8899,
+            "protocol": "UDP",
+            "model_family": "ET",
+            "modbus_id": 0,
+            "keep_alive": False,
+            "scan_interval": 60,
+            "network_timeout": 1,
+            "network_retries": 10,
+        }
+        values = result["data_schema"](values)
+        with patch.object(
+            config_flow,
+            "async_detect_inverter_port",
+            AsyncMock(side_effect=InverterError("offline")),
+        ) as detect:
+            result = await handler.async_step_init(values)
+        detect.assert_not_awaited()
+        self.assertEqual(result["type"], "create_entry")
+
 
 class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
     async def test_diagnostics_redact_identity_and_preserve_useful_network_details(

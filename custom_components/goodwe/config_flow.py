@@ -91,6 +91,13 @@ class OptionsFlowHandler(OptionsFlow):
         errors = {}
         if user_input is not None:
             effective = {**self.entry.data, **self.entry.options}
+            effective.setdefault(CONF_PROTOCOL, "UDP")
+            effective.setdefault(CONF_MODBUS_ID, DEFAULT_MODBUS_ID)
+            effective[CONF_PORT] = effective.get(CONF_PORT) or (
+                GOODWE_TCP_PORT
+                if effective[CONF_PROTOCOL] == "TCP"
+                else GOODWE_UDP_PORT
+            )
             if any(
                 user_input.get(key) != effective.get(key)
                 for key in (
