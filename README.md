@@ -46,10 +46,12 @@ not change configuration. Discovery sends no inverter control or setting
 commands. This requires a compatible Wi-Fi/LAN logger and a local network
 that passes broadcast traffic; it does not discover across routed VLANs.
 
-The original 13 recovery tests and a read-only live recovery probe passed on
-Home Assistant 2026.10.0. The expanded 26 discovery/recovery tests pass locally
-with HA 2026.8.3, including actual ConfigFlow and manifest loader behavior.
-The test workflow pins HA 2026.10.0. Run tests with:
+The 26 discovery/recovery tests pass on HA 2026.10.0 in GitHub Actions and
+locally on HA 2026.8.3, including actual ConfigFlow and manifest loader behavior.
+A previous read-only live recovery probe on HA 2026.10.0 also found the existing
+inverter by serial and read telemetry with configuration writes mocked.
+The library requirement follows HA upgrades, with 0.4.10 as the tested minimum.
+Run tests with:
 
 ```sh
 python -m unittest discover -s tests -v
