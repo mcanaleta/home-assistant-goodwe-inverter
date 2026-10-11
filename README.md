@@ -6,6 +6,45 @@
 
 ## GoodWe solar inverter for Home Assistant (experimental)
 
+### Personal fork with serial based IP recovery
+
+This fork adds recovery for an existing Home Assistant GoodWe entry after its
+logger obtains a different DHCP address. Initial setup still accepts a host.
+The stable identity is the inverter serial already stored in `unique_id`.
+
+At startup, failed connection and port detection trigger a bounded UDP search
+using `WIFIKIT-214028-READ` on port 48899. While running, discovery starts after
+three consecutive communication failures. It searches only network interfaces
+enabled in Home Assistant, validates the serial through the inverter API, reads
+telemetry, and updates the host in the existing entry. An explicit host override
+in options is updated too. The existing entry update listener reloads all
+platforms so controls and sensors use the recovered host. Entity IDs, unique
+IDs, other options, and recorder history remain attached to the same entry.
+
+The search collects replies for two seconds; recovery has a 20 second total
+timeout, a maximum of 16 candidates, and a 60 second cooldown per entry.
+Devices with another serial and candidates that fail telemetry validation do
+not change configuration. Discovery sends no inverter control or setting
+commands. This requires a compatible Wi-Fi/LAN logger and a local network
+that passes broadcast traffic; it does not discover across routed VLANs.
+
+Compatibility checks and 13 mocked tests run in the Home Assistant 2026.10.0
+Python environment. Run tests with:
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+On an existing installation, back up configuration and registries before
+installing the `custom_components/goodwe` override. Do not delete the existing
+GoodWe entry. The fork also inherits the upstream experimental integration's
+features and platforms; compare those with the bundled integration before
+deployment. Removing this custom component directory and restarting restores
+the bundled integration. Keep the recovered host stored in the existing entry.
+
+The serial recovery branch is prepared for review and has not been installed
+on the production Home Assistant instance.
+
 Support for Goodwe solar inverters is present as native integration of [Home Assistant](https://www.home-assistant.io/integrations/goodwe/) since its release 2022.2 and is recommended for most users.
 
 This custom component is experimental version with features not (yet) present in standard HA's integration and is intended for users with specific needs and early adopters of new features.

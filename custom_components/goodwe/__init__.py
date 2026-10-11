@@ -1,11 +1,12 @@
 """The Goodwe inverter component."""
 
-from goodwe import Inverter, InverterError, connect
-from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_PROTOCOL, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.device_registry import DeviceInfo
+
+from goodwe import Inverter, InverterError, connect
+from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
 
 from .config_flow import GoodweFlowHandler
 from .const import (
@@ -21,6 +22,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import GoodweConfigEntry, GoodweRuntimeData, GoodweUpdateCoordinator
+from .discovery import async_recover_inverter, validate_serial
 from .services import async_setup_services, async_unload_services
 
 
@@ -51,12 +53,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoodweConfigEntry) -> bo
             timeout=network_timeout,
             retries=network_retries,
         )
+        validate_serial(entry, inverter)
         inverter.set_keep_alive(keep_alive)
     except InverterError as err:
         try:
             inverter = await async_check_port(hass, entry, host)
         except InverterError:
-            raise ConfigEntryNotReady from err
+            recovered = await async_recover_inverter(hass, entry)
+            if recovered is None:
+                raise ConfigEntryNotReady from err
+            inverter, _ = recovered
+        inverter.set_keep_alive(keep_alive)
 
     device_info = DeviceInfo(
         configuration_url="https://semsplus.goodwe.com/",
@@ -96,10 +103,12 @@ async def async_check_port(
 ) -> Inverter:
     """Check the communication port of the inverter, it may have changed after a firmware update."""
     inverter, port = await GoodweFlowHandler.async_detect_inverter_port(host=host)
+    validate_serial(entry, inverter)
     family = type(inverter).__name__
     hass.config_entries.async_update_entry(
         entry,
         data={
+            **entry.data,
             CONF_HOST: host,
             CONF_PORT: port,
             CONF_MODEL_FAMILY: family,

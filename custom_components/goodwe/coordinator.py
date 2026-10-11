@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import logging
 from typing import Any
 
-from goodwe import Inverter, InverterError, RequestFailedException
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -18,7 +17,10 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from goodwe import Inverter, InverterError, RequestFailedException
+
 from .const import DEFAULT_SCAN_INTERVAL
+from .discovery import async_recover_inverter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.inverter: Inverter = inverter
         self._last_data: dict[str, Any] = {}
         self._polled_entities: dict[BaseCoordinatorEntity, datetime] = {}
+        self._generic_failures = 0
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the inverter."""
@@ -65,7 +68,9 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             self._last_data = self.data or {}
-            return await self.inverter.read_runtime_data()
+            data = await self.inverter.read_runtime_data()
+            self._generic_failures = 0
+            return data
         except RequestFailedException as ex:
             # UDP communication with inverter is by definition unreliable.
             # It is rather normal in many environments to fail to receive
@@ -82,9 +87,27 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug(
                 "Inverter not responding (streak of %d)", ex.consecutive_failures_count
             )
+            recovered = await self._async_recover()
+            if recovered is not None:
+                # The existing update listener reloads the entry after an IP change,
+                # so entities retaining an inverter reference also get the new host.
+                _, data = recovered
+                return data
             raise UpdateFailed(ex) from ex
         except InverterError as ex:
+            self._generic_failures += 1
+            if self._generic_failures >= 3:
+                recovered = await self._async_recover()
+                if recovered is not None:
+                    _, data = recovered
+                    return data
             raise UpdateFailed(ex) from ex
+
+    async def _async_recover(self):
+        """Reload only fully loaded entries; first-refresh failures retry setup."""
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            return None
+        return await async_recover_inverter(self.hass, self.config_entry)
 
     async def _update_polled_entities(self) -> None:
         for entity, interval in list(self._polled_entities.items()):
