@@ -1,13 +1,22 @@
 """The Goodwe inverter component."""
 
-from goodwe import Inverter, InverterError, connect
-from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_PROTOCOL, CONF_SCAN_INTERVAL
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_MAC,
+    CONF_PORT,
+    CONF_PROTOCOL,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 
-from .config_flow import GoodweFlowHandler
+from goodwe import Inverter, InverterError, connect
+from goodwe.const import GOODWE_TCP_PORT, GOODWE_UDP_PORT
+
 from .const import (
     CONF_KEEP_ALIVE,
     CONF_MODBUS_ID,
@@ -21,6 +30,13 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import GoodweConfigEntry, GoodweRuntimeData, GoodweUpdateCoordinator
+from .discovery import DATA_REDISCOVERY, async_recover_inverter
+from .helpers import (
+    async_detect_inverter_port,
+    async_update_endpoint,
+    raise_if_cancelled,
+    validate_serial,
+)
 from .services import async_setup_services, async_unload_services
 
 
@@ -51,12 +67,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoodweConfigEntry) -> bo
             timeout=network_timeout,
             retries=network_retries,
         )
+        raise_if_cancelled()
+        validate_serial(entry, inverter)
         inverter.set_keep_alive(keep_alive)
-    except InverterError as err:
+    except (InverterError, OSError) as err:
+        raise_if_cancelled()
         try:
             inverter = await async_check_port(hass, entry, host)
-        except InverterError:
-            raise ConfigEntryNotReady from err
+        except InverterError, OSError:
+            recovered = await async_recover_inverter(hass, entry)
+            if recovered is None:
+                raise ConfigEntryNotReady from err
+            inverter, _ = recovered
+        inverter.set_keep_alive(keep_alive)
 
     device_info = DeviceInfo(
         configuration_url="https://semsplus.goodwe.com/",
@@ -67,6 +90,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoodweConfigEntry) -> bo
         sw_version=f"{inverter.firmware} / {inverter.arm_firmware}",
         hw_version=f"{inverter.serial_number[5:8]} {inverter.serial_number[0:5]}",
     )
+    if mac := entry.data.get(CONF_MAC):
+        device_info["connections"] = {(CONNECTION_NETWORK_MAC, format_mac(mac))}
 
     # Create update coordinator
     coordinator = GoodweUpdateCoordinator(hass, entry, inverter)
@@ -95,16 +120,13 @@ async def async_check_port(
     hass: HomeAssistant, entry: GoodweConfigEntry, host: str
 ) -> Inverter:
     """Check the communication port of the inverter, it may have changed after a firmware update."""
-    inverter, port = await GoodweFlowHandler.async_detect_inverter_port(host=host)
-    family = type(inverter).__name__
-    hass.config_entries.async_update_entry(
-        entry,
-        data={
-            CONF_HOST: host,
-            CONF_PORT: port,
-            CONF_MODEL_FAMILY: family,
-        },
+    inverter, port = await async_detect_inverter_port(
+        host=host,
+        family=entry.options.get(CONF_MODEL_FAMILY, entry.data.get(CONF_MODEL_FAMILY)),
+        comm_addr=entry.options.get(CONF_MODBUS_ID, DEFAULT_MODBUS_ID),
     )
+    validate_serial(entry, inverter)
+    async_update_endpoint(hass, entry, host, port)
     return inverter
 
 
@@ -118,6 +140,7 @@ async def async_unload_entry(
 
     if unload_ok:
         hass.data[DOMAIN].pop(config_entry.entry_id)
+        hass.data.get(DATA_REDISCOVERY, {}).pop(config_entry.entry_id, None)
 
         if not hass.data[DOMAIN]:
             await async_unload_services(hass)
@@ -135,6 +158,9 @@ async def async_migrate_entry(
 ) -> bool:
     """Migrate old config entries."""
 
+    if config_entry.version > 2:
+        return False
+
     if config_entry.version == 1:
         # Update from version 1 to version 2 adding the PROTOCOL to the config entry
         host = config_entry.data[CONF_HOST]
@@ -151,19 +177,14 @@ async def async_migrate_entry(
         )
         if not port:
             try:
-                _, port = await GoodweFlowHandler.async_detect_inverter_port(host=host)
-            except InverterError as err:
+                _, port = await async_detect_inverter_port(host=host)
+            except (InverterError, OSError) as err:
                 raise ConfigEntryNotReady from err
         new_data = {
+            **config_entry.data,
             CONF_HOST: host,
             CONF_PORT: port,
-            CONF_PROTOCOL: config_entry.data.get(CONF_PROTOCOL),
-            CONF_KEEP_ALIVE: config_entry.data.get(CONF_KEEP_ALIVE),
-            CONF_MODEL_FAMILY: config_entry.data.get(CONF_MODEL_FAMILY),
-            CONF_SCAN_INTERVAL: config_entry.data.get(CONF_SCAN_INTERVAL),
-            CONF_NETWORK_RETRIES: config_entry.data.get(CONF_NETWORK_RETRIES),
-            CONF_NETWORK_TIMEOUT: config_entry.data.get(CONF_NETWORK_TIMEOUT),
-            CONF_MODBUS_ID: config_entry.data.get(CONF_MODBUS_ID),
+            CONF_PROTOCOL: "TCP" if port == GOODWE_TCP_PORT else "UDP",
         }
         hass.config_entries.async_update_entry(config_entry, data=new_data, version=2)
 

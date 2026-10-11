@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from goodwe import Inverter, InverterError
+from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.const import CONF_HOST, CONF_MAC
 from homeassistant.core import HomeAssistant
+
+from goodwe import Inverter, InverterError
 
 from .coordinator import GoodweConfigEntry
 
@@ -17,7 +20,9 @@ async def async_get_config_entry_diagnostics(
     inverter = config_entry.runtime_data.inverter
 
     return {
-        "config_entry": config_entry.as_dict(),
+        "config_entry": async_redact_data(
+            config_entry.as_dict(), {CONF_HOST, CONF_MAC, "unique_id"}
+        ),
         "inverter": {
             "model_name": inverter.model_name,
             "rated_power": inverter.rated_power,

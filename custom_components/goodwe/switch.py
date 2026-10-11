@@ -1,10 +1,9 @@
 """GoodWe PV inverter switch entities."""
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import Any
 
-from goodwe import Inverter, InverterError
 from homeassistant.components.switch import (
     SwitchDeviceClass,
     SwitchEntity,
@@ -15,6 +14,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import BaseCoordinatorEntity
+
+from goodwe import Inverter, InverterError
 
 from .coordinator import GoodweUpdateCoordinator
 
@@ -82,7 +83,7 @@ async def async_setup_entry(
     for description in SWITCHES:
         try:
             current_state = await inverter.read_setting(description.setting)
-        except (InverterError, ValueError):
+        except InverterError, ValueError:
             # Inverter model does not support this feature
             _LOGGER.debug("Could not read %s value", description.setting)
         else:

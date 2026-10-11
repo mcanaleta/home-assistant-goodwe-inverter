@@ -2,14 +2,18 @@
     "config": {
         "abort": {
             "already_configured": "Device is already configured",
-            "already_in_progress": "Configuration flow is already in progress"
+            "already_in_progress": "Configuration flow is already in progress",
+            "not_goodwe": "This device does not respond as a GoodWe inverter",
+            "device_changed": "This address now belongs to another inverter. Discover devices again.",
+            "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+            "unique_id_mismatch": "[%key:common::config_flow::abort::unique_id_mismatch%]"
         },
         "error": {
             "connection_error": "Failed to connect"
         },
-    "flow_title": "GoodWe",
+        "flow_title": "GoodWe {name}",
         "step": {
-            "user": {
+            "manual": {
                 "data": {
                     "host": "Hostname / IP address",
                     "port": "Port (8899/UDP | 502/TCP)",
@@ -18,6 +22,27 @@
                 },
                 "description": "Connect to inverter",
                 "title": "GoodWe inverter"
+            },
+            "select": {
+                "title": "Discovered inverters",
+                "description": "Choose an inverter found on the network, or Manual to enter an address.",
+                "data": {
+                    "device": "Inverter"
+                }
+            },
+            "confirm": {
+                "title": "Set up GoodWe inverter",
+                "description": "Add {model}, serial number {serial}, found at {host}?"
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "Hostname / IP address",
+                    "port": "Port (8899/UDP | 502/TCP)",
+                    "protocol": "Protocol",
+                    "model_family": "Inverter Family (optional)"
+                },
+                "description": "Connect to inverter",
+                "title": "Reconfigure GoodWe inverter"
             }
         }
     },
@@ -58,7 +83,7 @@
             "fast_charging_power": {
                 "name": "Fast charging power"
             },
-              "fast_charging_soc": {
+            "fast_charging_soc": {
                 "name": "Fast charging SoC"
             }
         },
@@ -66,18 +91,18 @@
             "ems_mode": {
                 "name": "EMS mode",
                 "state": {
-                "auto": "Auto",
-                "charge_pv": "Charge PV",
-                "discharge_pv": "Discharge PV",
-                "import_ac": "Import AC",
-                "export_ac": "Export AC",
-                "conserve": "Conserve",
-                "off_grid": "Off-grid",
-                "battery_standby": "Battery Standby",
-                "buy_power": "Buy Power",
-                "sell_power": "Sell Power",
-                "charge_battery": "Charge Battery",
-                "discharge_battery": "Discharge Battery"
+                    "auto": "Auto",
+                    "charge_pv": "Charge PV",
+                    "discharge_pv": "Discharge PV",
+                    "import_ac": "Import AC",
+                    "export_ac": "Export AC",
+                    "conserve": "Conserve",
+                    "off_grid": "Off-grid",
+                    "battery_standby": "Battery Standby",
+                    "buy_power": "Buy Power",
+                    "sell_power": "Sell Power",
+                    "charge_battery": "Charge Battery",
+                    "discharge_battery": "Discharge Battery"
                 }
             },
             "operation_mode": {
@@ -109,7 +134,7 @@
             },
             "fast_charging_switch": {
                 "name": "Fast charging switch"
-              },
+            },
             "load_control": {
                 "name": "Load control"
             },
@@ -137,7 +162,9 @@
                 "description": "Specify optional (network) settings",
                 "title": "GoodWe optional settings"
             }
+        },
+        "error": {
+            "connection_error": "Failed to connect"
         }
     }
 }
-

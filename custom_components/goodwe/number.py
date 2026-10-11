@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-import logging
 
-from goodwe import Inverter, InverterError
 from homeassistant.components.number import (
     NumberDeviceClass,
     NumberEntity,
@@ -16,6 +15,8 @@ from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from goodwe import Inverter, InverterError
 
 from .const import DOMAIN
 from .coordinator import GoodweConfigEntry
@@ -213,7 +214,7 @@ async def async_setup_entry(
     for description in filter(lambda dsc: dsc.filter(inverter), NUMBERS):
         try:
             current_value = description.mapper(await description.getter(inverter))
-        except (InverterError, ValueError):
+        except InverterError, ValueError:
             # Inverter model does not support this setting
             _LOGGER.debug("Could not read inverter setting %s", description.key)
             continue

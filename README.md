@@ -6,6 +6,82 @@
 
 ## GoodWe solar inverter for Home Assistant (experimental)
 
+### Personal fork with discovery and serial based IP recovery
+
+This fork discovers inverters before asking for an IP and recovers existing
+entries after DHCP address changes. The stable identity is the inverter serial
+stored in `unique_id`.
+
+When adding GoodWe, a bounded UDP search shows verified devices by model and
+serial. Select a device and confirm it; manual host configuration remains
+available for loggers without UDP discovery support. Identification is repeated
+at confirmation so an address reassigned to a different serial is rejected.
+
+Home Assistant can also offer newly detected devices automatically through its
+DHCP integration. Matchers cover Solar-WiFi hostnames, the E8FDF8 logger MAC
+prefix, and MACs registered by this integration. The MAC prefix is shared by
+other products: it only triggers a read-only probe, and devices without a valid
+GoodWe response are rejected. Discovery shows a confirmation form, never creates
+an entry without user confirmation. A previously configured serial updates its
+existing host, port and protocol (including options overrides), preserving all other settings.
+The logger MAC from UDP or DHCP is registered as a network connection, while the inverter
+serial remains the primary identity. Automatic discovery requires DHCP enabled
+and network visibility; installing this custom integration requires an HA
+restart. Models with different logger prefixes or hostnames may need the
+Add integration UDP search.
+
+At startup, failed connection and port detection trigger a bounded UDP search
+using `WIFIKIT-214028-READ` on port 48899. While running, discovery starts after
+three consecutive communication failures. It searches only network interfaces
+enabled in Home Assistant, validates the serial through the inverter API, reads
+telemetry, and updates the endpoint in the existing entry. Explicit host, port
+and protocol overrides in options are updated too. Recovery replaces the coordinator connection. Entry updates reload all
+platforms so controls and sensors use the recovered host. Entity IDs, unique
+IDs, other options, and recorder history remain attached to the same entry.
+
+The search collects replies for two seconds; recovery has a 20 second total
+timeout, a maximum of 16 candidates, four concurrent probes, a four second
+per-candidate verification limit, and a 60 second cooldown per entry.
+Devices with another serial and candidates that fail telemetry validation do
+not change configuration. Discovery sends no inverter control or setting
+commands. This requires a compatible Wi-Fi/LAN logger and a local network
+that passes broadcast traffic; it does not discover across routed VLANs.
+
+The 48 tests pass on HA 2026.10.0/Python 3.14.8 in GitHub Actions. They include
+Home Assistant's real flow manager, config entries and entity registry. CI runs
+Ruff and reports line/branch coverage across the entire integration; config
+flow, discovery, shared helpers and diagnostics must remain at 100%. The full
+integration's measured coverage is 60% because inherited platforms still lack
+coverage. See [quality review and contribution plan](QUALITY_REVIEW.md) for
+architecture, known gaps, hardware validation limits and the local test-runtime
+issue. The library requirement follows HA upgrades, with 0.4.10 as the tested
+minimum.
+
+The entry's **Reconfigure** action can change its endpoint after verifying the
+same serial. Endpoint edits in **Options** also verify identity; changing only
+the polling interval does not require an online inverter. Downloaded diagnostics
+redact IP, MAC and serial identity.
+
+Run checks in a Python 3.14 environment with the CI dependencies installed:
+
+```sh
+ruff check custom_components tests
+ruff format --check custom_components tests
+coverage run -m unittest discover -s tests -v
+coverage report
+coverage report --fail-under=100 --include="*/config_flow.py,*/discovery.py,*/helpers.py,*/diagnostics.py"
+```
+
+On an existing installation, back up configuration and registries before
+installing the `custom_components/goodwe` override. Do not delete the existing
+GoodWe entry. The fork also inherits the upstream experimental integration's
+features and platforms; compare those with the bundled integration before
+deployment. Removing this custom component directory and restarting restores
+the bundled integration. Keep the recovered host stored in the existing entry.
+
+The serial recovery branch is prepared for review and has not been installed
+on the production Home Assistant instance.
+
 Support for Goodwe solar inverters is present as native integration of [Home Assistant](https://www.home-assistant.io/integrations/goodwe/) since its release 2022.2 and is recommended for most users.
 
 This custom component is experimental version with features not (yet) present in standard HA's integration and is intended for users with specific needs and early adopters of new features.

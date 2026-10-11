@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 import logging
+from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
-from goodwe import Inverter, InverterError, RequestFailedException
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -18,7 +17,11 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from goodwe import Inverter, InverterError, RequestFailedException
+
 from .const import DEFAULT_SCAN_INTERVAL
+from .discovery import async_recover_inverter
+from .helpers import raise_if_cancelled
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,7 +60,8 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.inverter: Inverter = inverter
         self._last_data: dict[str, Any] = {}
-        self._polled_entities: dict[BaseCoordinatorEntity, datetime] = {}
+        self._polled_entities: dict[BaseCoordinatorEntity, int] = {}
+        self._consecutive_failures = 0
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the inverter."""
@@ -65,14 +69,21 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             self._last_data = self.data or {}
-            return await self.inverter.read_runtime_data()
+            data = await self.inverter.read_runtime_data()
+            raise_if_cancelled()
+            self._consecutive_failures = 0
+            return data
         except RequestFailedException as ex:
+            raise_if_cancelled()
+            self._consecutive_failures = max(
+                self._consecutive_failures + 1, ex.consecutive_failures_count
+            )
             # UDP communication with inverter is by definition unreliable.
             # It is rather normal in many environments to fail to receive
             # proper response in usual time, so we intentionally ignore isolated
             # failures and report problem with availability only after
             # consecutive streak of 3 of failed requests.
-            if ex.consecutive_failures_count < 3:
+            if self._consecutive_failures < 3:
                 _LOGGER.debug(
                     "No response received (streak of %d)", ex.consecutive_failures_count
                 )
@@ -82,9 +93,42 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug(
                 "Inverter not responding (streak of %d)", ex.consecutive_failures_count
             )
+            recovered = await self._async_recover()
+            if recovered is not None:
+                # The existing update listener reloads the entry after an IP change,
+                # so entities retaining an inverter reference also get the new host.
+                _, data = recovered
+                return data
             raise UpdateFailed(ex) from ex
-        except InverterError as ex:
+        except (InverterError, OSError) as ex:
+            raise_if_cancelled()
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= 3:
+                recovered = await self._async_recover()
+                if recovered is not None:
+                    _, data = recovered
+                    return data
             raise UpdateFailed(ex) from ex
+
+    async def _async_recover(self) -> tuple[Inverter, dict[str, Any]] | None:
+        """Refresh references even when the logger still uses the same endpoint."""
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            return None
+        before = (dict(self.config_entry.data), dict(self.config_entry.options))
+        recovered = await async_recover_inverter(self.hass, self.config_entry)
+        if recovered is not None:
+            self.inverter = recovered[0]
+            self._consecutive_failures = 0
+            # Changed entries reload through their update listener. If nothing
+            # changed, reload explicitly to refresh references held by controls.
+            if before == (
+                dict(self.config_entry.data),
+                dict(self.config_entry.options),
+            ):
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                )
+        return recovered
 
     async def _update_polled_entities(self) -> None:
         for entity, interval in list(self._polled_entities.items()):
@@ -92,6 +136,7 @@ class GoodweUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     await entity.async_update()
                 except InverterError:
+                    raise_if_cancelled()
                     _LOGGER.debug("Failed to update entity %s", entity.name)
 
     def sensor_value(self, sensor: str) -> Any:

@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 
 import voluptuous as vol
-
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     ATTR_DEVICE_ID,

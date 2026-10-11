@@ -1,0 +1,31 @@
+name: Test discovery and address recovery
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: pip install homeassistant==2026.10.0 goodwe==0.4.10 ifaddr==0.2.0 coverage==7.16.2 ruff==0.16.5
+      - run: ruff check custom_components tests
+      - run: ruff format --check custom_components tests
+      - run: coverage run -m unittest discover -s tests -v
+      - name: Report coverage across the entire integration
+        run: coverage report
+      - name: Require complete coverage of config flow and discovery modules
+        run: coverage report --fail-under=100 --include="*/config_flow.py,*/discovery.py,*/helpers.py,*/diagnostics.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: .coverage
+          include-hidden-files: true

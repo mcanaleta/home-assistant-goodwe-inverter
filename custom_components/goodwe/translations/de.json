@@ -2,14 +2,18 @@
     "config": {
         "abort": {
             "already_configured": "Gerät ist bereits konfiguriert",
-            "already_in_progress": "Die Konfiguration wird bereits bearbeitet"
+            "already_in_progress": "Die Konfiguration wird bereits bearbeitet",
+            "not_goodwe": "This device does not respond as a GoodWe inverter",
+            "device_changed": "This address now belongs to another inverter. Discover devices again.",
+            "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+            "unique_id_mismatch": "[%key:common::config_flow::abort::unique_id_mismatch%]"
         },
         "error": {
             "connection_error": "Verbindung fehlgeschlagen"
         },
-    "flow_title": "GoodWe",
+        "flow_title": "GoodWe {name}",
         "step": {
-            "user": {
+            "manual": {
                 "data": {
                     "host": "Hostname / IP-Adresse",
                     "port": "Port (8899/UDP | 502/TCP)",
@@ -18,6 +22,27 @@
                 },
                 "description": "Verbinden zum Wechselrichter",
                 "title": "GoodWe Wechselrichter"
+            },
+            "select": {
+                "title": "Discovered inverters",
+                "description": "Choose an inverter found on the network, or Manual to enter an address.",
+                "data": {
+                    "device": "Inverter"
+                }
+            },
+            "confirm": {
+                "title": "Set up GoodWe inverter",
+                "description": "Add {model}, serial number {serial}, found at {host}?"
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "Hostname / IP-Adresse",
+                    "port": "Port (8899/UDP | 502/TCP)",
+                    "protocol": "Protokoll",
+                    "model_family": "Wechselrichterfamilie (optional)"
+                },
+                "description": "Verbinden zum Wechselrichter",
+                "title": "Reconfigure GoodWe inverter"
             }
         }
     },
@@ -49,7 +74,7 @@
             "fast_charging_power": {
                 "name": "Schnellladeleistung"
             },
-              "fast_charging_soc": {
+            "fast_charging_soc": {
                 "name": "Schnelllade SoC"
             }
         },
@@ -83,7 +108,7 @@
             },
             "fast_charging_switch": {
                 "name": "Schnellladungs-Schalter"
-              },
+            },
             "load_control": {
                 "name": "Lastkontrolle"
             }
@@ -105,7 +130,9 @@
                 "description": "Optionale (Netzwerk-)Einstellungen",
                 "title": "GoodWe optionale Einstellungen"
             }
+        },
+        "error": {
+            "connection_error": "Verbindung fehlgeschlagen"
         }
     }
 }
-

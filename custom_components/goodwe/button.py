@@ -1,16 +1,17 @@
 """GoodWe PV inverter selection settings entities."""
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-import logging
 
-from goodwe import Inverter, InverterError
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from goodwe import Inverter, InverterError
 
 from .const import DOMAIN
 from .coordinator import GoodweConfigEntry
@@ -63,7 +64,7 @@ async def async_setup_entry(
     for description in BUTTONS:
         try:
             await inverter.read_setting(description.setting)
-        except (InverterError, ValueError):
+        except InverterError, ValueError:
             # Inverter model does not support this feature
             _LOGGER.debug("Could not read %s value", description.setting)
         else:
