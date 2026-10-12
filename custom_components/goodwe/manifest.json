@@ -1,12 +1,18 @@
 {
   "domain": "goodwe",
   "name": "GoodWe Inverter",
+  "after_dependencies": ["dhcp"],
   "codeowners": [
     "@mletenay",
     "@starkillerOG",
     "@fizcris"
   ],
   "config_flow": true,
+  "dhcp": [
+    {"hostname": "solar-wifi*"},
+    {"macaddress": "E8FDF8*"},
+    {"registered_devices": true}
+  ],
   "documentation": "https://github.com/mletenay/home-assistant-goodwe-inverter",
   "integration_type": "device",
   "iot_class": "local_polling",
