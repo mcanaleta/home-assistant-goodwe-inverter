@@ -9,6 +9,7 @@ from goodwe import Inverter, InverterError
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -59,6 +60,7 @@ async def async_setup_entry(
     device_info = config_entry.runtime_data.device_info
 
     entities = []
+    registry = er.async_get(hass)
 
     for description in BUTTONS:
         try:
@@ -67,11 +69,20 @@ async def async_setup_entry(
             # Inverter model does not support this feature
             _LOGGER.debug("Could not read %s value", description.setting)
         else:
+            unique_id = f"{DOMAIN}-{description.key}-{inverter.serial_number}"
+            native_id = f"{description.key}-{inverter.serial_number}"
+            # Keep existing native button identities when installing this override.
+            if (
+                not registry.async_get_entity_id("button", DOMAIN, unique_id)
+                and registry.async_get_entity_id("button", DOMAIN, native_id)
+            ):
+                unique_id = native_id
             entities.append(
                 GoodweButtonEntity(
                     device_info,
                     description,
                     inverter,
+                    unique_id=unique_id,
                 )
             )
 
@@ -90,10 +101,14 @@ class GoodweButtonEntity(ButtonEntity):
         device_info: DeviceInfo,
         description: GoodweButtonEntityDescription,
         inverter: Inverter,
+        *,
+        unique_id: str | None = None,
     ) -> None:
         """Initialize the inverter operation mode setting entity."""
         self.entity_description = description
-        self._attr_unique_id = f"{DOMAIN}-{description.key}-{inverter.serial_number}"
+        self._attr_unique_id = (
+            unique_id or f"{DOMAIN}-{description.key}-{inverter.serial_number}"
+        )
         self._attr_device_info = device_info
         self._inverter: Inverter = inverter
 

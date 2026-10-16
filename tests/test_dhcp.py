@@ -120,7 +120,11 @@ class DhcpFlowTests(unittest.IsolatedAsyncioTestCase):
             result = await self.dhcp()
             self.assertEqual(result["step_id"], "confirm")
             self.assertEqual(result["description_placeholders"]["serial"], SERIAL)
-            self.assertTrue(self.hass.config_entries.flow.async_progress()[0]["context"]["confirm_only"])
+            self.assertTrue(
+                self.hass.config_entries.flow.async_progress()[0]["context"][
+                    "confirm_only"
+                ]
+            )
             self.assertEqual(self.hass.config_entries.async_entries("goodwe"), [])
             result = await self.hass.config_entries.flow.async_configure(
                 result["flow_id"], {}
@@ -145,6 +149,39 @@ class DhcpFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await async_setup_entry(self.hass, entry))
         self.assertEqual(entry.runtime_data.device_info["connections"], {("mac", MAC)})
         inv.write_setting.assert_not_called()
+
+    async def test_clock_button_preserves_native_and_custom_registry_identities(self):
+        from custom_components.goodwe import button
+
+        device_registry.async_setup(self.hass)
+        await device_registry.async_load(self.hass)
+        registry = entity_registry.async_get(self.hass)
+        await registry.async_load()
+        entry = await self.existing()
+        for index, prefix in enumerate(
+            ["synchronize_clock", "goodwe-synchronize_clock"]
+        ):
+            inv = inverter(f"EXAMPLE-SERIAL-{index}")
+            inv.read_setting = AsyncMock(return_value=0)
+            entry.runtime_data = MagicMock(inverter=inv, device_info={})
+            unique_id = f"{prefix}-{inv.serial_number}"
+            original = registry.async_get_or_create(
+                "button",
+                "goodwe",
+                unique_id,
+                config_entry=entry,
+                suggested_object_id=f"original_clock_{index}",
+            )
+            add_entities = MagicMock()
+            await button.async_setup_entry(self.hass, entry, add_entities)
+            clock = next(
+                entity
+                for entity in add_entities.call_args.args[0]
+                if entity.entity_description.key == "synchronize_clock"
+            )
+            self.assertEqual(clock.unique_id, unique_id)
+            self.assertIs(registry.async_get(original.entity_id), original)
+            inv.write_setting.assert_not_called()
 
     async def test_existing_serial_updates_endpoint_once_and_preserves_entities(self):
         entry = await self.existing()
