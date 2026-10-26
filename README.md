@@ -11,6 +11,20 @@ Support for Goodwe solar inverters is present as native integration of [Home Ass
 This custom component is experimental version with features not (yet) present in standard HA's integration and is intended for users with specific needs and early adopters of new features.
 Use at own risk.
 
+### DHCP discovery
+
+Home Assistant can offer GoodWe inverters detected through DHCP. New devices
+require confirmation after their serial is verified through the inverter API.
+For an existing serial, discovery refreshes its host, port and protocol,
+including option overrides, and keeps the same config entry and entity IDs.
+The logger MAC is stored as a network connection; the inverter serial remains
+the stable identity. Shared-vendor MAC matches are verified before use.
+
+Discovery requires Home Assistant's DHCP integration and network visibility.
+It does not search by UDP broadcast or periodically wake up adapters. Manual
+setup remains available when DHCP discovery is unavailable. Previously stored
+logger MACs allow probing with custom port, family and Modbus address settings.
+
 ### Differences between this HACS and native HA integration
 
 - EMS modes
