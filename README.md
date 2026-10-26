@@ -1,3 +1,13 @@
+# Personal maintenance fork
+
+Maintained at [mcanaleta/home-assistant-goodwe-inverter](https://github.com/mcanaleta/home-assistant-goodwe-inverter).
+
+Add this repository to HACS as a custom **Integration** repository and download
+the latest release. It includes verified DHCP address recovery while preserving
+existing configuration entries, devices and entity IDs. Home Assistant
+2026.10.0 or later is required. Restart Home Assistant after installation.
+Do not delete or recreate the existing integration when switching repositories.
+
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mletenay)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
 [![Build Status](https://github.com/mletenay/home-assistant-goodwe-inverter/actions/workflows/hassfest.yaml/badge.svg)](https://github.com/mletenay/home-assistant-goodwe-inverter/actions/workflows/hassfest.yaml)
